@@ -12,12 +12,16 @@ import { getAuth,
   signOut,
   onAuthStateChanged } from 'firebase/auth';
 
-import {getFirestore,
+import {
+  getFirestore,
   addDoc,
   collection,
   query,
   orderBy,
-  onSnapshot} from 'firebase/firestore';
+  onSnapshot,
+  doc,
+  setDoc,
+  where} from 'firebase/firestore';
 
 import * as firebaseui from 'firebaseui';
 
@@ -83,19 +87,27 @@ async function main() {
   });
 
   // Create query for messages
-  const q = query(collection(db, 'guestbook'), orderBy('timestamp', 'desc'));
-  onSnapshot(q, snaps => {
-    // Reset page
-    guestbook.innerHTML = '';
-    // Loop through documents in database
-    snaps.forEach(doc => {
-      // Create an HTML entry for each document and add it to the chat
-      const entry = document.createElement('p');
-      entry.textContent = doc.data().name + ': ' + doc.data().text;
-      guestbook.appendChild(entry);
+  function subscribeGuestbook() {
+    const q = query(collection(db, 'guestbook'), orderBy('timestamp', 'desc'));
+    guestbookListener = onSnapshot(q, snaps => {
+      // Reset page
+      guestbook.innerHTML = '';
+      // Loop through documents in database
+      snaps.forEach(doc => {
+        // Create an HTML entry for each document and add it to the chat
+        const entry = document.createElement('p');
+        entry.textContent = doc.data().name + ': ' + doc.data().text;
+        guestbook.appendChild(entry);
+      });
     });
-  });
-  
+  }
+  // Unsubscribe from guestbook updates
+  function unsubscribeGuestbook() {
+    if (guestbookListener != null) {
+      guestbookListener();
+      guestbookListener = null;
+    }
+  }
   // FirebaseUI config
   const uiConfig = {
     credentialHelper: firebaseui.auth.CredentialHelper.NONE,
@@ -119,11 +131,84 @@ async function main() {
       startRsvpButton.textContent = 'LOGOUT';
       // Show guestbook to logged-in users
       guestbookContainer.style.display = 'block';
+
+      // Subscribe to the guestbook collection
+      subscribeGuestbook();
+      // Subcribe to the user's RSVP
+      subscribeCurrentRSVP(user);
     } else {
       startRsvpButton.textContent = 'RSVP';
       // Hide guestbook for non-logged-in users
-      guestbookContainer.style.display = 'none';
+      guestbookContainer.style.display = 'none'
+      ;
+      // Unsubscribe from the guestbook collection
+      unsubscribeGuestbook();
+      // Unsubscribe from the guestbook collection
+      unsubscribeCurrentRSVP();
     }
   });
+  // Listen to RSVP responses
+  rsvpYes.onclick = async () => {
+    // Get a reference to the user's document in the attendees collection
+  const userRef = doc(db, 'attendees', auth.currentUser.uid);
+
+  // If they RSVP'd yes, save a document with attendi()ng: true
+  try {
+    await setDoc(userRef, {
+      attending: true
+    });
+  } catch (e) {
+    console.error(e);
+  }
+  };
+  rsvpNo.onclick = async () => {
+    // Get a reference to the user's document in the attendees collection
+  const userRef = doc(db, 'attendees', auth.currentUser.uid);
+
+  // If they RSVP'd yes, save a document with attending: true
+  try {
+    await setDoc(userRef, {
+      attending: false
+    });
+  } catch (e) {
+    console.error(e);
+  }
+  };
+
+  // Listen for attendee list
+  const attendingQuery = query(
+    collection(db, 'attendees'),
+    where('attending', '==', true)
+  );
+  const unsubscribe = onSnapshot(attendingQuery, snap => {
+    const newAttendeeCount = snap.docs.length;
+    numberAttending.innerHTML = newAttendeeCount + ' people going';
+  });
+  // Listen for attendee list
+  function subscribeCurrentRSVP(user) {
+    const ref = doc(db, 'attendees', user.uid);
+    rsvpListener = onSnapshot(ref, doc => {
+      if (doc && doc.data()) {
+        const attendingResponse = doc.data().attending;
+
+        // Update css classes for buttons
+        if (attendingResponse) {
+          rsvpYes.className = 'clicked';
+          rsvpNo.className = '';
+        } else {
+          rsvpYes.className = '';
+          rsvpNo.className = 'clicked';
+        }
+      }
+    });
+  }
+  function unsubscribeCurrentRSVP() {
+    if (rsvpListener != null) {
+      rsvpListener();
+      rsvpListener = null;
+    }
+    rsvpYes.className = '';
+    rsvpNo.className = '';
+  }
 }
 main();
